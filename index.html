@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CED nach SOLIDWORKS</title>
+<meta name="description" content="Konzept: Creo-Elements/Direct-Teile mit einem KI-Agenten und der SOLIDWORKS-COM-API als parametrische SOLIDWORKS-Modelle neu aufbauen.">
+<meta name="robots" content="noindex">
+<style>
+:root {
+  --bg: #ffffff; --panel: #f5f7fa; --line: #d9dee5; --ink: #141b26; --ink-2: #5b6573;
+  --blue: #1f5fe0; --blue-soft: #eaf1fe; --amber: #b36b00; --amber-soft: #fff4e2; --ok: #1d7a3d; --nok: #c0362c;
+  --c-key: #1f5fe0; --c-str: #1d7a3d; --c-num: #a35a00; --c-com: #7d8794;
+  --sans: "Noto Sans", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  --mono: "JetBrains Mono", "Cascadia Mono", Consolas, ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141b; --panel: #171e27; --line: #2b3542; --ink: #e6eaf0; --ink-2: #9aa5b3;
+    --blue: #6f9cff; --blue-soft: #1a2740; --amber: #e8a54a; --amber-soft: #2b2214; --ok: #5cc483; --nok: #f07b70;
+    --c-key: #8fb2ff; --c-str: #7fd39b; --c-num: #e8b061; --c-com: #7f8a99;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f141b; --panel: #171e27; --line: #2b3542; --ink: #e6eaf0; --ink-2: #9aa5b3;
+  --blue: #6f9cff; --blue-soft: #1a2740; --amber: #e8a54a; --amber-soft: #2b2214; --ok: #5cc483; --nok: #f07b70;
+  --c-key: #8fb2ff; --c-str: #7fd39b; --c-num: #e8b061; --c-com: #7f8a99;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; padding: 0 16px; background: var(--bg); color: var(--ink); font: 400 16px/1.55 var(--sans); }
+main { max-width: 1180px; margin: 0 auto; padding: 56px 0 40px; }
+h1, h2, h3, p { margin: 0; }
+h1 { font-size: clamp(1.7rem, 3.2vw, 2.4rem); line-height: 1.15; font-weight: 700; }
+h2 { font-size: 1.35rem; font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 700; }
+.kicker { color: var(--blue); font-weight: 700; font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
+.sub { color: var(--ink-2); max-width: 66ch; margin-top: 8px; }
+section { margin-top: 64px; }
+code { font: 500 .85em var(--mono); }
+.small { font-size: .82rem; color: var(--ink-2); }
+
+/* ---------- pipeline graph ---------- */
+.graph { margin: 36px 0 0; }
+.loop { position: relative; height: 58px; margin: 0 calc(100% / 12 * 3) 0 calc(100% / 12 * 3); }
+.loop::before { content: ""; position: absolute; inset: 22px 0 0 0; border: 1.5px dashed var(--ink-2); border-bottom: 0; border-radius: 22px 22px 0 0; }
+.loop span { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); background: var(--bg); border: 1px solid var(--line); border-radius: 99px; padding: 3px 12px; font-size: .8rem; color: var(--ink-2); white-space: nowrap; }
+.loop i { position: absolute; left: -6px; bottom: -4px; border: 6px solid transparent; border-top: 8px solid var(--ink-2); }
+.loop.exp { height: 58px; margin-right: calc(100% / 12); }
+.loop.exp::before { inset: 0 0 22px 0; border: 1.5px solid var(--amber); border-top: 0; border-radius: 0 0 22px 22px; }
+.loop.exp span { top: auto; bottom: 8px; color: var(--amber); border-color: var(--amber); font-weight: 600; }
+.loop.exp i { top: -6px; bottom: auto; border-top: 0; border-bottom: 8px solid var(--amber); }
+.row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 28px; }
+.node { display: grid; gap: 8px; justify-items: center; align-content: start; text-align: center; position: relative; min-width: 0; }
+.node + .node::before { content: ""; position: absolute; left: -24px; top: 64px; width: 20px; height: 1.5px; background: var(--ink); }
+.node + .node::after { content: ""; position: absolute; left: -9px; top: 60px; border: 5px solid transparent; border-left: 7px solid var(--ink); }
+.box { width: 100%; height: 130px; border: 2px solid var(--blue); border-radius: 12px; background: var(--bg); display: grid; place-items: center; padding: 8px; overflow: hidden; }
+.box.agent { background: var(--blue-soft); }
+.box svg { width: 52px; height: 52px; }
+.box img { max-width: 100%; max-height: 110px; border-radius: 6px; background: #fff; }
+.box pre { margin: 0; font: 400 .64rem/1.45 var(--mono); text-align: left; white-space: pre; }
+.box pre b { font-weight: 400; color: var(--c-str); }
+.node p { font-size: .8rem; color: var(--ink-2); line-height: 1.4; }
+.expert { margin: 0 auto; max-width: 600px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; border: 2px solid var(--amber); background: var(--amber-soft); border-radius: 12px; padding: 12px 16px; }
+.expert svg { width: 40px; height: 40px; color: var(--amber); }
+.expert p { font-size: .82rem; color: var(--ink-2); }
+.verdicts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.verdicts span { font: 500 .7rem/1.3 var(--mono); border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 3px 7px; }
+.verdicts .p { color: var(--ok); } .verdicts .f { color: var(--nok); }
+.mloop { display: none; font-size: .82rem; color: var(--ink-2); margin: 0 0 12px; }
+@media (max-width: 900px) {
+  .loop { display: none; }
+  .mloop { display: block; }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .node { grid-template-columns: 110px minmax(0, 1fr); justify-items: start; text-align: left; align-items: center; column-gap: 16px; padding-bottom: 26px; }
+  .node .box { grid-row: span 2; height: 90px; }
+  .node .box img { max-height: 72px; }
+  .node .box pre { font-size: .5rem; }
+  .node + .node::before { left: 54px; top: -24px; width: 1.5px; height: 18px; }
+  .node + .node::after { left: 50px; top: -9px; border: 5px solid transparent; border-top: 7px solid var(--ink); }
+}
+
+/* ---------- example part ---------- */
+.part { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 28px; margin-top: 20px; align-items: start; }
+.part figure { margin: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; }
+.part figure img { display: block; width: 100%; height: auto; }
+.part figure a + a img { border-top: 1px solid var(--line); }
+.part figcaption { background: var(--bg); border-top: 1px solid var(--line); padding: 8px 12px; font-size: .78rem; color: var(--ink-2); }
+.part figcaption a { color: var(--blue); }
+.tree { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; font-size: .88rem; }
+.tree li { display: grid; grid-template-columns: 1.6rem minmax(0, 1fr) auto; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); align-items: baseline; }
+.tree li:first-child { border-top: 0; background: var(--panel); font-weight: 600; }
+.tree .i { font: 500 .72rem var(--mono); color: var(--ink-2); }
+.tree .op { font: 500 .72rem var(--mono); color: var(--blue); white-space: nowrap; }
+@media (max-width: 860px) { .part { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- mapping tabs ---------- */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 20px; }
+.tabs button { font: 500 .82rem var(--sans); padding: 6px 12px; border: 1px solid var(--line); border-radius: 99px; background: var(--bg); color: var(--ink-2); cursor: pointer; }
+.tabs button:hover { color: var(--ink); border-color: var(--ink-2); }
+.tabs button[aria-selected="true"] { background: var(--blue); border-color: var(--blue); color: var(--bg); }
+.pair { margin-top: 12px; display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.pair > div { min-width: 0; }
+.pair .head { grid-column: 1 / -1; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: .86rem; color: var(--ink-2); }
+.pair .head b { color: var(--ink); }
+.pair .lbl { padding: 10px 14px 0; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.pair .ir { border-right: 1px solid var(--line); }
+.pair .api { background: var(--panel); }
+pre.code { margin: 0; padding: 8px 14px 14px; font: 400 .75rem/1.55 var(--mono); overflow-x: auto; }
+pre.code .k { color: var(--c-key); } pre.code .s { color: var(--c-str); } pre.code .n { color: var(--c-num); } pre.code .c { color: var(--c-com); }
+@media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } .pair .ir { border-right: 0; border-bottom: 1px solid var(--line); } }
+
+/* ---------- models ---------- */
+.models { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 20px; }
+.model { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 6px; align-content: start; }
+.model .tag { justify-self: start; font-size: .7rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--blue); background: var(--blue-soft); border-radius: 99px; padding: 2px 10px; }
+.model p { font-size: .86rem; color: var(--ink-2); }
+@media (max-width: 700px) { .models { grid-template-columns: minmax(0, 1fr); } }
+
+footer { max-width: 1180px; margin: 0 auto; padding: 24px 0 40px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 20px; justify-content: space-between; font-size: .78rem; color: var(--ink-2); }
+footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <p class="kicker">Konzept</p>
+  <h1>Creo Elements/Direct → SOLIDWORKS</h1>
+  <p class="sub">Ein KI-Agent liest Geometrie und Zeichnung und beschreibt die Features als JSON. Ein Add-in baut sie über die SOLIDWORKS-API nativ auf. Automatische Prüfungen und regelmäßige Reviews durch Konstrukteure verbessern den Agenten.</p>
+
+  <!-- pipeline -->
+  <figure class="graph" aria-label="Ablauf: CED-Teil, KI-Agent, Part-IR, Replayer, Prüfung, SOLIDWORKS-Teil. Automatische Rückkopplung von der Prüfung zum Agenten, zyklisches Expertenreview vom Ergebnis zurück zum Agenten.">
+    <div class="loop" aria-hidden="true"><span>automatisch: Build-Log und Abweichungen</span><i></i></div>
+    <p class="mloop">↺ Die Prüfung meldet Abweichungen automatisch an den Agenten zurück.</p>
+    <div class="row">
+      <div class="node">
+        <div class="box"><img src="assets/cadgenbench-115-thumb.png" alt="Isometrische Ansichten des Beispielteils"></div>
+        <h3>CED-Teil</h3>
+        <p>STEP / Parasolid, Zeichnung, Model-Manager-Daten</p>
+      </div>
+      <div class="node">
+        <div class="box agent"><svg viewBox="0 0 56 56" aria-hidden="true"><path d="M24 8l4 14 14 4-14 4-4 14-4-14-14-4 14-4z" fill="var(--blue)"/><path d="M44 6l2 6 6 2-6 2-2 6-2-6-6-2 6-2z" fill="var(--blue)"/></svg></div>
+        <h3>KI-Agent</h3>
+        <p>erkennt Features und Konstruktionsabsicht</p>
+      </div>
+      <div class="node">
+        <div class="box"><pre>{ "features": [
+  {"op": <b>"base_flange"</b>},
+  {"op": <b>"edge_flange"</b>},
+  {"op": <b>"hem"</b>},
+  {"op": <b>"form_tool"</b>},
+  {"op": <b>"cut"</b>}
+] }</pre></div>
+        <h3>Part-IR</h3>
+        <p>deklaratives JSON, gleich für Creo und SOLIDWORKS</p>
+      </div>
+      <div class="node">
+        <div class="box"><svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="12" width="40" height="32" rx="3"/><path d="M8 20h40"/><path d="M18 28l-5 5 5 5M38 28l5 5-5 5M31 26l-6 14"/></svg></div>
+        <h3>Replayer</h3>
+        <p>C#-Add-in auf der SOLIDWORKS-COM-API</p>
+      </div>
+      <div class="node">
+        <div class="box"><svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 18l4 4 8-8M14 30l4 4 8-8M14 42l4 4 8-8"/><path d="M32 18h12M32 30h12M32 42h12"/></svg></div>
+        <h3>Prüfung</h3>
+        <p>Geometrie gegen Original, Baum zurücklesen</p>
+      </div>
+      <div class="node">
+        <div class="box"><svg viewBox="0 0 56 56" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 18l20-10 20 10v20L28 48 8 38z" fill="var(--blue-soft)"/><path d="M8 18l20 10 20-10M28 28v20"/></svg></div>
+        <h3>.SLDPRT</h3>
+        <p>nativ mit Feature-Baum, Gleichungen, Eigenschaften</p>
+      </div>
+    </div>
+    <div class="loop exp" aria-hidden="true"><span>zyklisch: Expertenreview</span><i></i></div>
+    <div class="expert">
+      <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="14" cy="13" r="5"/><path d="M5 31c0-5 4-9 9-9s9 4 9 9"/><circle cx="28" cy="15" r="4"/><path d="M24 25c1-1 3-2 5-2 4 0 7 3 7 8"/></svg>
+      <div>
+        <h3>Expertenreview, z. B. alle zwei Wochen</h3>
+        <p>Konstrukteure bewerten eine Stichprobe von Zwischenergebnissen: pass oder fail, mit Begründung. Daraus werden Regeln und Beispiele für den Agenten.</p>
+        <div class="verdicts"><span class="p">pass · Rollung als Umschlag statt zwei Laschen</span><span class="f">fail · Sicke als Schnitt, Abwicklung falsch</span><span class="f">fail · K-Faktor 0,5 statt 0,33</span></div>
+      </div>
+    </div>
+  </figure>
+
+  <!-- example part -->
+  <section>
+    <h2>Beispielteil</h2>
+    <p class="sub">Blechteil aus dem öffentlichen Benchmark CADGenBench (Hugging Face, Mecado), Aufgabe 115: Abwicklung mit Biegeangaben, Schnitt und zwei isometrische Ansichten. Rechts der Feature-Baum, den der Agent daraus vorschlägt.</p>
+    <div class="part">
+      <figure>
+        <a href="assets/cadgenbench-115.png"><img src="assets/cadgenbench-115.png" alt="Zeichnung CADGenBench 115: Blechteil, Dicke 1 mm, Radien 3, K-Faktor 0,33. Abwicklung mit Biegelinien (90°, 45° nach oben und unten, 223,56° mit R2), 10 Bohrungen Ø4 im Raster 20, Ø20, 2 × Ø10, Langlöcher, Sicke Tiefe 1, rechteckige Ausprägung, geschlossener Umschlag R1 Länge 5, Schnittansicht und zwei isometrische Ansichten" width="1600" height="1103"></a>
+        <figcaption>CADGenBench, Aufgabe 115 · Hugging Face, Mecado · Daten unter <a href="https://opendatacommons.org/licenses/by/1-0/">ODC-BY</a> · <a href="https://huggingface.co/spaces/HuggingAI4Engineering/CADGenBench">Benchmark</a> · STEP ist die private Ground Truth des Benchmarks</figcaption>
+      </figure>
+      <ol class="tree">
+        <li><span class="i">#</span><span>Feature-Baum (Vorschlag des Agenten)</span><span class="op">IR-op</span></li>
+        <li><span class="i">0</span><span>Blechparameter: Dicke 1, Radius 3, K-Faktor 0,33</span><span class="op">sheet_metal</span></li>
+        <li><span class="i">1</span><span>Boden, Kontur aus der Abwicklung</span><span class="op">base_flange</span></li>
+        <li><span class="i">2</span><span>2 × Lasche 90° nach oben, je 5 × Ø4 im Raster 20</span><span class="op">edge_flange</span></li>
+        <li><span class="i">3</span><span>4 × Lasche 45°, nach oben und unten</span><span class="op">edge_flange</span></li>
+        <li><span class="i">4</span><span>2 × Rollung 223,56°, R2</span><span class="op">hem</span></li>
+        <li><span class="i">5</span><span>Pos. 3: geschlossener Umschlag R1, Länge 5</span><span class="op">hem</span></li>
+        <li><span class="i">6</span><span>Pos. 1: Sicke um Langloch Ø6,6, Tiefe 1</span><span class="op">form_tool</span></li>
+        <li><span class="i">7</span><span>Pos. 2: rechteckige Ausprägung R5 / R2</span><span class="op">form_tool</span></li>
+        <li><span class="i">8</span><span>Ø20, 2 × Ø10, 3 × Langloch 5</span><span class="op">cut</span></li>
+        <li><span class="i">9</span><span>Abwicklung gegen die Zeichnung prüfen</span><span class="op">flat_pattern</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- mapping -->
+  <section>
+    <h2>Mapping: Part-IR → SOLIDWORKS-API</h2>
+    <p class="sub">Prinzip der SOLIDWORKS-API: erst auswählen, dann die Feature-Methode aufrufen. Einheiten intern in Meter.</p>
+    <div class="tabs" role="tablist" aria-label="Operation" id="tabs"></div>
+    <div class="pair" role="tabpanel" id="panel">
+      <div class="head" id="head"></div>
+      <div class="ir"><div class="lbl">Part-IR</div><pre class="code" id="ir"></pre></div>
+      <div class="api"><div class="lbl">SOLIDWORKS API · C#</div><pre class="code" id="api"></pre></div>
+    </div>
+    <p class="small" style="margin-top:8px">Gekürzt, nicht kompiliert. <code>Select…</code>, <code>QueryEdges</code> u. ä. sind eigene Hilfsfunktionen.</p>
+  </section>
+
+  <!-- models -->
+  <section>
+    <h2>Modelle</h2>
+    <p class="sub">Der Agent schreibt nur JSON. Das Modell ist austauschbar und wird am selben Teilesatz verglichen.</p>
+    <div class="models">
+      <div class="model"><span class="tag">Cloud</span><h3>GPT-6 Astra · OpenAI</h3><p>Spitzenmodell für Reasoning und Agenten, 1M Token Kontext. Für Pilot und Benchmark.</p></div>
+      <div class="model"><span class="tag">Open Weights · On-Prem</span><h3>Kimi K3.1 Pro · Moonshot AI</h3><p>Stärkstes offenes Modell, Gewichte bis 4. 11. 2026 angekündigt. Läuft im eigenen Rechenzentrum, braucht aber einen großen GPU-Server.</p></div>
+    </div>
+  </section>
+</main>
+<footer>
+  <span>Bruno Hörmann · <a href="mailto:kontakt@brunohoermann.de">kontakt@brunohoermann.de</a></span>
+  <span><a href="https://brunohoermann.de/impressum.html">Impressum</a> · <a href="https://brunohoermann.de/datenschutz.html">Datenschutz</a></span>
+  <span>Beispielteil: CADGenBench 115, Hugging Face und Mecado, ODC-BY. SOLIDWORKS und Creo sind Marken ihrer Inhaber.</span>
+</footer>
+
+<script>
+/* Mapping examples on CADGenBench task 115 (sheet metal tray): IR on the left, SOLIDWORKS COM API (C#) on the right. */
+var MAP = [
+  {
+    tab: 'Grundblech', title: 'Blechdicke 1, R3, K 0,33 → Grundblech (Base Flange)',
+    note: 'Dicke, Standardradius und K-Faktor stehen in den Hinweisen der Zeichnung und gelten für alle folgenden Features. Statt InsertSheetMetalBaseFlange2 mit 19 Argumenten wird ein Definitionsobjekt befüllt, weil die alte Methode laut einem Open-Source-Projekt unter SOLIDWORKS 2026 still null liefert.',
+    ir: `{
+  "sheet_metal": { "thickness": 1,
+                   "bend_radius": 3,
+                   "k_factor": 0.33 },
+  "features": [{
+    "id": "boden",
+    "op": "base_flange",
+    "sketch": {
+      "plane": { "datum": "TOP" },
+      "profile": "closed",
+      "from": "drawing:flat_pattern" }
+  }]
+}`,
+    api: `var sk = SketchProfile(doc, StdPlane.Top, ir.Sketch); // geschlossen
+doc.ClearSelection2(true);
+sk.Select2(false, 0);                    // ganze Skizze auswählen
+
+var bf = (BaseFlangeFeatureData)doc.FeatureManager
+    .CreateDefinition((int)swFeatureNameID_e.swFmBaseFlange);
+bf.OverrideThickness = true;  bf.Thickness  = 0.001;
+bf.OverrideRadius    = true;  bf.BendRadius = 0.003;
+bf.OverrideKFactor   = true;  bf.KFactor    = 0.33;
+
+Feature f = (Feature)doc.FeatureManager.CreateFeature(bf);
+f.Name = "Boden";`
+  },
+  {
+    tab: 'Laschen', title: 'Bend Angle 90 / 45, up/down → Kantenlasche (Edge Flange)',
+    note: 'Die Zeichnung zeigt die Abwicklung mit Biegelinien. Der Agent ordnet jede Biegelinie einer Kante des Bodens zu. Die Lasche entsteht in zwei Schritten: erst die Profilskizze an der Kante, dann das Feature. Die Länge wird danach über die Definition gesetzt. Steht so nicht in der Doku, sondern im Code eines Open-Source-Projekts.',
+    ir: `{
+  "id": "lasche_oben",
+  "op": "edge_flange",
+  "edge": {
+    "of": "boden",
+    "type": "edge",
+    "filter": { "bend_line":
+                "drawing:bl_top" },
+    "match": "one" },
+  "angle": 90,
+  "direction": "up",
+  "length": "drawing",
+  "radius": "default"
+}`,
+    api: `Edge e = QueryEdge(doc, ir.Edge);         // genau eine Kante
+var sk = (Feature)doc.InsertSketchForEdgeFlange(
+    e, ir.Angle * Math.PI / 180, ir.Direction == "down");
+doc.SketchManager.InsertSketch(true);
+((Entity)e).Select4(false, null);
+
+var f = (Feature)doc.FeatureManager.InsertSheetMetalEdgeFlange2(
+    new[] { e }, new[] { sk },
+    (int)swInsertEdgeFlangeOptions_e.swInsertEdgeFlangeUseDefaultRadius,
+    ir.Angle * Math.PI / 180, 0,           // Winkel, Radius
+    (int)swFlangePositionTypes_e.swFlangePositionTypeMaterialInside,
+    len,
+    (int)swSheetMetalReliefTypes_e.swSheetMetalReliefRectangular,
+    0.5, 0.001, 0.001, 0, null);
+
+var d = (EdgeFlangeFeatureData)f.GetDefinition();
+d.AccessSelections(doc, null);
+d.OffsetDistance = len;                  // Länge aus der Abwicklung
+f.ModifyDefinition(d, doc, null);`
+  },
+  {
+    tab: 'Rollung', title: 'Bend Angle 223,56, R2 → gerollter Umschlag (Hem)',
+    note: 'Mehr als 180° ist keine normale Lasche. Der Agent erkennt das Muster und wählt einen gerollten Umschlag mit Winkel und Radius aus der Zeichnung. 16 Positionsargumente.',
+    ir: `{
+  "id": "rollung_rechts",
+  "op": "hem",
+  "type": "rolled",
+  "edges": {
+    "of": "boden",
+    "type": "edge",
+    "filter": { "bend_line":
+                "drawing:bl_right_*" },
+    "match": "all" },
+  "angle": 223.56,
+  "radius": 2,
+  "direction": "up"
+}`,
+    api: `SelectAll(doc, QueryEdges(doc, ir.Edges));  // 2 Kanten
+
+Feature h = doc.FeatureManager.InsertSheetMetalHem2(
+    (int)swHemTypes_e.swHemTypeRolled,
+    (int)swHemPositionTypes_e.swHemPositionTypeInside,
+    false,                               // Reverse
+    0, 0,                                // Länge, Spalt
+    223.56 * Math.PI / 180,              // Winkel
+    0.002,                               // Radius R2
+    0, null,                             // Gehrungsspalt, Biegezugabe
+    true, 0, 0, true, 0.5, 0, 0);        // Freischnitt
+h.Name = "Rollung R2";`
+  },
+  {
+    tab: 'Sicke', title: 'Pos. 1: Formed circular bead, depth 1 → Umformwerkzeug',
+    note: 'Sicke und Ausprägung sind Umformungen, keine Schnitte. Sonst stimmt die Abwicklung nicht. Der Agent wählt ein Werkzeug aus der Bibliothek und platziert es auf der Fläche. Die ältere Methode InsertFormToolFeature ist laut Doku überholt.',
+    ir: `{
+  "id": "sicke_langloch",
+  "op": "form_tool",
+  "tool": "bead_circular",
+  "params": { "depth": 1 },
+  "around": "langloch_6_6",
+  "on": { "of": "boden",
+          "side": "top" }
+}`,
+    api: `var ft = (LibraryFormToolFeatureData)doc.FeatureManager
+    .CreateDefinition((int)swFeatureNameID_e.swFmFormToolInstance);
+ft.FormToolPath = Library.FormTool("bead_circular");  // .SLDPRT
+ft.SetPlacementFace(TopFaceOf(doc, "Boden"));
+ft.RotationAngle = 0;
+
+Feature s = (Feature)doc.FeatureManager.CreateFeature(ft);
+PlaceAt(s, ir.Around);                   // Lageskizze am Langloch
+s.Name = "Sicke T1";`
+  },
+  {
+    tab: 'Prüfung', title: 'Abwicklung gegen die Zeichnung → Bericht an den Agenten',
+    note: 'Die Zeichnung zeigt die Abwicklung mit Maßen. Darum lässt sich direkt prüfen: Rebuild-Fehler im Baum, dann Abwicklung als DXF exportieren und gegen die bemaßte Kontur vergleichen. Zahlen im Bericht sind ein Beispiel.',
+    ir: `// Rückmeldung an den Agenten
+{
+  "rebuild": "ok",
+  "flat_outline_mm": { "max_dev": 0.05 },
+  "holes": { "expected": 13,
+             "found": 13 },
+  "passed": true
+}`,
+    api: `for (var f = (Feature)doc.FirstFeature(); f != null;
+     f = (Feature)f.GetNextFeature())
+{
+    int code = f.GetErrorCode2(out bool warning);
+    if (code != 0) Report(f.Name, code, warning);
+}
+
+// Abwicklung als DXF, danach gegen die Maße der Zeichnung prüfen
+((PartDoc)doc).ExportToDWG2(dxfPath, doc.GetPathName(),
+    (int)swExportToDWG_e.swExportToDWG_ExportSheetMetal,
+    true, null, false, false, 1, null);
+CompareWithDrawing(dxfPath, ir.FlatPatternDims);`
+  }
+];
+
+(function () {
+  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function json(t) {
+    return esc(t).replace(/(\/\/.*)|("(?:[^"\\]|\\.)*")(\s*:)?|(-?\b\d+(?:\.\d+)?\b)/g, function (m, c, s, colon, n) {
+      if (c) return '<span class="c">' + c + '</span>';
+      if (s) return colon ? '<span class="k">' + s + '</span>' + colon : '<span class="s">' + s + '</span>';
+      return '<span class="n">' + n + '</span>';
+    });
+  }
+  function cs(t) {
+    return esc(t).split('\n').map(function (line) {
+      var i = line.indexOf('//'), body = i >= 0 ? line.slice(0, i) : line, com = i >= 0 ? line.slice(i) : '';
+      body = body.replace(/(\/\*.*?\*\/)|("(?:[^"\\]|\\.)*")|(\b\d+(?:\.\d+)?\b)/g, function (m, c, s, n) {
+        if (c) return '<span class="c">' + c + '</span>';
+        if (s) return '<span class="s">' + s + '</span>';
+        return '<span class="n">' + n + '</span>';
+      });
+      return body + (com ? '<span class="c">' + com + '</span>' : '');
+    }).join('\n');
+  }
+  var tabs = document.getElementById('tabs');
+  var head = document.getElementById('head');
+  var buttons = MAP.map(function (m, i) {
+    var b = document.createElement('button');
+    b.type = 'button'; b.setAttribute('role', 'tab'); b.textContent = m.tab;
+    b.addEventListener('click', function () { show(i); });
+    tabs.appendChild(b);
+    return b;
+  });
+  function show(i) {
+    var m = MAP[i];
+    buttons.forEach(function (b, j) { b.setAttribute('aria-selected', i === j); b.tabIndex = i === j ? 0 : -1; });
+    head.innerHTML = '<b></b> · <span></span>';
+    head.querySelector('b').textContent = m.title;
+    head.querySelector('span').textContent = m.note;
+    document.getElementById('ir').innerHTML = json(m.ir);
+    document.getElementById('api').innerHTML = cs(m.api);
+  }
+  tabs.addEventListener('keydown', function (e) {
+    var i = buttons.indexOf(document.activeElement);
+    if (i < 0 || (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft')) return;
+    i = (i + (e.key === 'ArrowRight' ? 1 : MAP.length - 1)) % MAP.length;
+    show(i); buttons[i].focus();
+  });
+  show(0);
+})();
+</script>
+</body>
+</html>
